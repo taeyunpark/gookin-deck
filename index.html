@@ -2875,5 +2875,157 @@ if (heroBg) {
 })();
 
 </script>
+<!-- GOOKIN Deck Analytics: Enhanced Scroll + Section + Dwell Time Tracking -->
+<script>
+(function() {
+  'use strict';
+
+  // GA4 gtag 준비 대기 (이미 로드되어 있지만 안전장치)
+  if (typeof gtag === 'undefined') {
+    console.warn('[Analytics] gtag not ready');
+    return;
+  }
+
+  // ────── 1. Page-level Scroll Depth (25/50/75/100%) ──────
+  var scrollMilestones = [25, 50, 75, 100];
+  var reachedMilestones = {};
+
+  function getScrollPercent() {
+    var docHeight = Math.max(
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight,
+      document.body.offsetHeight,
+      document.documentElement.offsetHeight
+    );
+    var winHeight = window.innerHeight;
+    var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    var trackLength = docHeight - winHeight;
+    return trackLength > 0 ? Math.floor((scrollTop / trackLength) * 100) : 0;
+  }
+
+  function checkScrollDepth() {
+    var percent = getScrollPercent();
+    scrollMilestones.forEach(function(milestone) {
+      if (percent >= milestone && !reachedMilestones[milestone]) {
+        reachedMilestones[milestone] = true;
+        gtag('event', 'scroll_depth', {
+          'percent_scrolled': milestone,
+          'event_category': 'engagement',
+          'event_label': milestone + '%'
+        });
+      }
+    });
+  }
+
+  // ────── 2. Section-level Tracking (IntersectionObserver) ──────
+  var sectionDwellTimes = {};
+  var sectionViewed = {};
+  var currentSection = null;
+  var currentSectionEnterTime = null;
+
+  function recordSectionDwell(sectionId) {
+    if (currentSectionEnterTime && currentSection) {
+      var dwellSeconds = Math.round((Date.now() - currentSectionEnterTime) / 1000);
+      if (dwellSeconds >= 2) {
+        sectionDwellTimes[currentSection] = (sectionDwellTimes[currentSection] || 0) + dwellSeconds;
+      }
+    }
+  }
+
+  if ('IntersectionObserver' in window) {
+    var sectionObserver = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        var sectionId = entry.target.id;
+        if (!sectionId) return;
+
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          // 섹션 최초 진입 이벤트 (세션당 1회)
+          if (!sectionViewed[sectionId]) {
+            sectionViewed[sectionId] = true;
+            gtag('event', 'section_view', {
+              'section_id': sectionId,
+              'event_category': 'engagement',
+              'event_label': sectionId
+            });
+          }
+          // 체류시간 측정 시작
+          recordSectionDwell();
+          currentSection = sectionId;
+          currentSectionEnterTime = Date.now();
+        } else if (currentSection === sectionId) {
+          // 섹션 이탈 시 체류시간 기록
+          recordSectionDwell();
+          currentSection = null;
+          currentSectionEnterTime = null;
+        }
+      });
+    }, {
+      threshold: [0.5],
+      rootMargin: '0px'
+    });
+
+    // DOM 로드 후 섹션 관찰 시작
+    function observeSections() {
+      var sections = document.querySelectorAll('section[id]');
+      sections.forEach(function(section) {
+        sectionObserver.observe(section);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', observeSections);
+    } else {
+      observeSections();
+    }
+  }
+
+  // ────── 3. Session-end Dwell Time Report ──────
+  function reportDwellTimes() {
+    // 현재 보고 있던 섹션의 마지막 체류시간 기록
+    recordSectionDwell();
+
+    // 각 섹션별 체류시간을 GA4로 전송
+    Object.keys(sectionDwellTimes).forEach(function(sectionId) {
+      var seconds = sectionDwellTimes[sectionId];
+      if (seconds >= 2) {
+        gtag('event', 'section_dwell_time', {
+          'section_id': sectionId,
+          'dwell_seconds': seconds,
+          'event_category': 'engagement',
+          'event_label': sectionId + '_' + seconds + 's'
+        });
+      }
+    });
+  }
+
+  // ────── 4. Event Listeners ──────
+  var scrollTimer = null;
+  window.addEventListener('scroll', function() {
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(checkScrollDepth, 150);
+  }, { passive: true });
+
+  // 페이지 이탈/숨김 시 체류시간 일괄 보고
+  // (visibilitychange가 pagehide보다 안정적)
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden') {
+      reportDwellTimes();
+    }
+  });
+
+  // 백업: 페이지 언로드 직전
+  window.addEventListener('pagehide', reportDwellTimes);
+
+  // 초기 체크 (페이지 로드 직후 이미 스크롤된 상태 대응)
+  if (document.readyState === 'complete') {
+    setTimeout(checkScrollDepth, 500);
+  } else {
+    window.addEventListener('load', function() {
+      setTimeout(checkScrollDepth, 500);
+    });
+  }
+})();
+</script>
+
 </body>
 </html>
